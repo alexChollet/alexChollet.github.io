@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Pétanque AR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --gold: #E8A020;
+      --gold-dim: rgba(232,160,32,0.25);
+      --blue: #3D8BFF;
+      --red: #E24B4A;
+      --green: #1D9E75;
+      --surface: #0e0e0f;
+      --surface-raised: #161618;
+      --surface-high: #1e1e22;
+      --border: rgba(255,255,255,0.07);
+      --border-bright: rgba(255,255,255,0.15);
+      --text: #f0f0f0;
+      --text-dim: #888;
+      --text-faint: #444;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    html, body {
+      height: 100%; width: 100%;
+      background: var(--surface);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      overflow: hidden;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      width: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    /* ── CAMERA ZONE ── */
+    #camera-zone {
+      position: relative;
+      flex: 1;
+      background: #000;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    #video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    #canvas-overlay {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    /* ── START SCREEN ── */
+    #start-screen {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 0;
+      background: var(--surface);
+      z-index: 20;
+      padding: 32px;
+    }
+
+    .start-icon {
+      font-size: 56px;
+      margin-bottom: 20px;
+      filter: drop-shadow(0 0 24px rgba(232,160,32,0.4));
+    }
+
+    .start-title {
+      font-size: 28px; font-weight: 600;
+      letter-spacing: -0.8px;
+      margin-bottom: 6px;
+    }
+
+    .start-sub {
+      font-size: 13px; color: var(--text-dim);
+      letter-spacing: 1.5px; text-transform: uppercase;
+      margin-bottom: 40px;
+    }
+
+    /* API KEY INPUT */
+    #api-section {
+      width: 100%;
+      margin-bottom: 16px;
+    }
+
+    .api-label {
+      font-size: 11px; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1px;
+      margin-bottom: 6px; display: block;
+    }
+
+    #api-key-input {
+      width: 100%;
+      background: var(--surface-high);
+      border: 0.5px solid var(--border-bright);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 13px; font-family: 'DM Mono', monospace;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #api-key-input::placeholder { color: var(--text-faint); }
+    #api-key-input:focus { border-color: var(--gold); }
+
+    .api-hint {
+      font-size: 11px; color: var(--text-faint);
+      margin-top: 5px; line-height: 1.5;
+    }
+    .api-hint a { color: var(--blue); text-decoration: none; }
+
+    #start-btn {
+      width: 100%;
+      margin-top: 8px;
+      background: var(--gold);
+      color: #000;
+      border: none;
+      border-radius: 40px;
+      padding: 14px;
+      font-size: 15px; font-weight: 600;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer;
+      letter-spacing: -0.2px;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    #start-btn:hover { opacity: 0.9; }
+    #start-btn:active { transform: scale(0.97); }
+
+    /* ── TOP HUD ── */
+    #hud-top {
+      position: absolute; top: 0; left: 0; right: 0;
+      display: none;
+      justify-content: space-between; align-items: center;
+      padding: 14px 16px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+      z-index: 10;
+    }
+
+    .hud-badge {
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 1.2px; text-transform: uppercase;
+      padding: 4px 10px; border-radius: 20px;
+    }
+    .badge-live { background: var(--red); color: #fff; }
+    .badge-wait { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); }
+    .badge-analyzing {
+      background: rgba(232,160,32,0.2);
+      color: var(--gold);
+      border: 0.5px solid rgba(232,160,32,0.4);
+    }
+
+    #fps-display {
+      font-size: 10px; font-family: 'DM Mono', monospace;
+      color: rgba(255,255,255,0.3);
+    }
+
+    /* ── VIEWFINDER GUIDE ── */
+    #viewfinder {
+      position: absolute; inset: 0;
+      pointer-events: none; z-index: 5;
+      display: none;
+    }
+    .vf-corner {
+      position: absolute;
+      width: 24px; height: 24px;
+      border-color: rgba(255,255,255,0.35);
+      border-style: solid;
+    }
+    .vf-tl { top: 20px; left: 20px; border-width: 2px 0 0 2px; border-top-left-radius: 4px; }
+    .vf-tr { top: 20px; right: 20px; border-width: 2px 2px 0 0; border-top-right-radius: 4px; }
+    .vf-bl { bottom: 20px; left: 20px; border-width: 0 0 2px 2px; border-bottom-left-radius: 4px; }
+    .vf-br { bottom: 20px; right: 20px; border-width: 0 2px 2px 0; border-bottom-right-radius: 4px; }
+
+    /* ── BOTTOM PANEL ── */
+    #bottom-panel {
+      background: var(--surface);
+      border-top: 0.5px solid var(--border);
+      display: none;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    /* Controls */
+    #controls {
+      padding: 12px 16px 10px;
+      border-bottom: 0.5px solid var(--border);
+    }
+
+    .slider-row {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 6px;
+    }
+    .slider-row:last-of-type { margin-bottom: 10px; }
+
+    .slider-label {
+      font-size: 10px; color: var(--text-faint);
+      text-transform: uppercase; letter-spacing: 1px;
+      width: 68px; flex-shrink: 0;
+    }
+
+    input[type=range] {
+      flex: 1;
+      -webkit-appearance: none;
+      height: 2px;
+      background: var(--border-bright);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--gold);
+      cursor: pointer;
+      border: 2px solid var(--surface);
+    }
+
+    .slider-val {
+      font-size: 10px; font-family: 'DM Mono', monospace;
+      color: var(--text-dim); width: 28px; text-align: right;
+    }
+
+    /* Action buttons */
+    #action-row {
+      display: flex; gap: 8px;
+    }
+
+    .btn {
+      flex: 1; padding: 9px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 12px; font-weight: 500;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer; border: 0.5px solid var(--border-bright);
+      background: var(--surface-raised); color: var(--text);
+      transition: background 0.12s, transform 0.1s;
+      letter-spacing: 0.1px;
+    }
+    .btn:hover { background: var(--surface-high); }
+    .btn:active { transform: scale(0.97); }
+    .btn.gold { background: var(--gold); color: #000; border-color: var(--gold); }
+    .btn.gold:hover { opacity: 0.9; }
+
+    /* Results */
+    #results {
+      padding: 10px 16px 12px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    #results-title {
+      font-size: 10px; color: var(--text-faint);
+      text-transform: uppercase; letter-spacing: 1.2px;
+      margin-bottom: 8px;
+    }
+
+    #ball-list { display: flex; flex-direction: column; gap: 5px; }
+
+    .ball-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-raised);
+      border: 0.5px solid var(--border);
+      transition: border-color 0.3s, background 0.3s;
+    }
+    .ball-row.winner {
+      border-color: rgba(232,160,32,0.5);
+      background: rgba(232,160,32,0.06);
+    }
+
+    .ball-num {
+      font-size: 12px; font-weight: 600; font-family: 'DM Mono', monospace;
+      color: var(--text-faint); width: 16px; text-align: center;
+    }
+    .ball-row.winner .ball-num { color: var(--gold); }
+
+    .ball-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .ball-info { flex: 1; font-size: 12px; color: var(--text-dim); line-height: 1.3; }
+    .ball-row.winner .ball-info { color: var(--text); }
+
+    .ball-badge {
+      font-size: 9px; font-weight: 600; letter-spacing: 0.5px;
+      padding: 2px 7px; border-radius: 10px;
+      background: var(--gold-dim); color: var(--gold);
+      text-transform: uppercase; white-space: nowrap;
+    }
+
+    #empty-hint {
+      text-align: center; padding: 14px 0;
+      color: var(--text-faint); font-size: 12px; line-height: 1.7;
+    }
+
+    #analysis-note {
+      font-size: 11px; color: var(--text-faint);
+      line-height: 1.5; margin-top: 6px;
+      padding-top: 6px; border-top: 0.5px solid var(--border);
+      display: none;
+    }
+
+    /* ── ERROR TOAST ── */
+    #toast {
+      position: absolute; bottom: 20px; left: 16px; right: 16px;
+      background: #2a1515; border: 0.5px solid rgba(226,75,74,0.4);
+      color: #f0a0a0; font-size: 12px; line-height: 1.5;
+      padding: 10px 14px; border-radius: var(--radius-sm);
+      z-index: 50; display: none;
+      animation: slideUp 0.2s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(8px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    /* ── LOADER RING ── */
+    #loader {
+      position: absolute; inset: 0;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.35);
+      z-index: 15;
+    }
+    .ring {
+      width: 36px; height: 36px;
+      border: 2.5px solid rgba(232,160,32,0.2);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- CAMERA ZONE -->
+  <div id="camera-zone">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas-overlay"></canvas>
+
+    <!-- Start screen -->
+    <div id="start-screen">
+      <div class="start-icon">🎯</div>
+      <div class="start-title">Pétanque AR</div>
+      <div class="start-sub">Détecteur de boules</div>
+
+      <div id="api-section">
+        <span class="api-label">Clé API Anthropic</span>
+        <input type="password" id="api-key-input"
+          placeholder="sk-ant-api03-..."
+          autocomplete="off" spellcheck="false">
+        <p class="api-hint">
+          Obtiens ta clé sur <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a><br>
+          Elle reste uniquement sur ton appareil.
+        </p>
+      </div>
+
+      <button id="start-btn" onclick="startApp()">Activer la caméra →</button>
+    </div>
+
+    <!-- HUD top -->
+    <div id="hud-top">
+      <span class="hud-badge badge-wait" id="status-badge">Prêt</span>
+      <span id="fps-display"></span>
+    </div>
+
+    <!-- Viewfinder corners -->
+    <div id="viewfinder">
+      <div class="vf-corner vf-tl"></div>
+      <div class="vf-corner vf-tr"></div>
+      <div class="vf-corner vf-bl"></div>
+      <div class="vf-corner vf-br"></div>
+    </div>
+
+    <!-- Loader -->
+    <div id="loader"><div class="ring"></div></div>
+
+    <!-- Toast -->
+    <div id="toast"></div>
+  </div>
+
+  <!-- BOTTOM PANEL -->
+  <div id="bottom-panel">
+    <div id="controls">
+      <div class="slider-row">
+        <span class="slider-label">Luminosité</span>
+        <input type="range" id="sl-bright" min="50" max="200" value="100" step="1"
+          oninput="updateFilter();document.getElementById('vb').textContent=this.value">
+        <span class="slider-val" id="vb">100</span>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">Contraste</span>
+        <input type="range" id="sl-contrast" min="50" max="200" value="100" step="1"
+          oninput="updateFilter();document.getElementById('vc').textContent=this.value">
+        <span class="slider-val" id="vc">100</span>
+      </div>
+      <div id="action-row">
+        <button class="btn" id="capture-btn" onclick="captureNow()">📷 Capturer</button>
+        <button class="btn" id="live-btn" onclick="toggleLive()">▶ Analyse live</button>
+      </div>
+    </div>
+
+    <div id="results">
+      <div id="results-title">Classement</div>
+      <div id="ball-list">
+        <div id="empty-hint">
+          Pointe la caméra vers les boules<br>puis appuie sur <strong style="color:#888">Capturer</strong> ou <strong style="color:#888">Analyse live</strong>
+        </div>
+      </div>
+      <div id="analysis-note"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── STATE ──
+  let apiKey = '';
+  let stream = null;
+  let liveMode = false;
+  let liveInterval = null;
+  let isBusy = false;
+  let lastData = null;
+  let frameId = null;
+  let frameCount = 0;
+  let fpsTimer = Date.now();
+
+  const BALL_COLORS = ['#3D8BFF','#E24B4A','#1D9E75','#D4537E','#BA7517','#7F77DD','#E8A020'];
+  let colorMap = {};
+  let colorIdx = 0;
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas-overlay');
+  const ctx = canvas.getContext('2d');
+
+  // ── FILTER ──
+  function updateFilter() {
+    const b = document.getElementById('sl-bright').value;
+    const c = document.getElementById('sl-contrast').value;
+    video.style.filter = `brightness(${b}%) contrast(${c}%)`;
+  }
+
+  // ── START ──
+  async function startApp() {
+    apiKey = document.getElementById('api-key-input').value.trim();
+    if (!apiKey || !apiKey.startsWith('sk-ant')) {
+      showToast('Entre une clé API Anthropic valide (commence par sk-ant...)');
+      return;
+    }
+    localStorage.setItem('petanque_key', apiKey);
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 }, height: { ideal: 720 }
+        },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+    } catch(e) {
+      showToast(e.name === 'NotAllowedError'
+        ? 'Accès caméra refusé. Autorise dans les paramètres du navigateur.'
+        : 'Impossible d\'accéder à la caméra : ' + e.message);
+      return;
+    }
+
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('hud-top').style.display = 'flex';
+    document.getElementById('viewfinder').style.display = 'block';
+    document.getElementById('bottom-panel').style.display = 'flex';
+
+    video.addEventListener('loadedmetadata', resizeCanvas);
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+    requestAnimationFrame(drawLoop);
+  }
+
+  function resizeCanvas() {
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+  }
+
+  // ── LIVE MODE ──
+  function toggleLive() {
+    liveMode = !liveMode;
+    const btn = document.getElementById('live-btn');
+    const badge = document.getElementById('status-badge');
+
+    if (liveMode) {
+      btn.textContent = '⏸ Pause';
+      btn.classList.add('gold');
+      badge.textContent = 'Live';
+      badge.className = 'hud-badge badge-live';
+      analyzeFrame();
+      liveInterval = setInterval(analyzeFrame, 3500);
+    } else {
+      clearInterval(liveInterval);
+      btn.textContent = '▶ Analyse live';
+      btn.classList.remove('gold');
+      badge.textContent = 'Prêt';
+      badge.className = 'hud-badge badge-wait';
+    }
+  }
+
+  function captureNow() {
+    analyzeFrame();
+  }
+
+  // ── ANALYZE ──
+  async function analyzeFrame() {
+    if (isBusy) return;
+    isBusy = true;
+
+    const badge = document.getElementById('status-badge');
+    badge.textContent = '...';
+    badge.className = 'hud-badge badge-analyzing';
+    document.getElementById('loader').style.display = 'flex';
+
+    // Snapshot with filter applied
+    const tmp = document.createElement('canvas');
+    tmp.width = video.videoWidth || 640;
+    tmp.height = video.videoHeight || 480;
+    const tmpCtx = tmp.getContext('2d');
+    const b = document.getElementById('sl-bright').value / 100;
+    const c = document.getElementById('sl-contrast').value / 100;
+    tmpCtx.filter = `brightness(${b}) contrast(${c})`;
+    tmpCtx.drawImage(video, 0, 0, tmp.width, tmp.height);
+    const b64 = tmp.toDataURL('image/jpeg', 0.75).split(',')[1];
+
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 800,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+              { type: 'text', text: `Tu analyses une image d'une partie de pétanque pour déterminer quel(les) boule(s) sont les plus proches du cochonnet.
+
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans balises markdown.
+
+Format exact :
+{
+  "found": true,
+  "cochonnet": { "x": 52, "y": 38 },
+  "balls": [
+    { "id": 1, "x": 30, "y": 70, "desc": "boule en bas à gauche", "rank": 1 },
+    { "id": 2, "x": 65, "y": 55, "desc": "boule au centre droit", "rank": 2 }
+  ],
+  "note": "La boule 1 est clairement plus proche du cochonnet."
+}
+
+x et y = pourcentage de position dans l'image (0-100).
+rank 1 = boule la plus proche du cochonnet.
+Si tu ne vois pas de cochonnet ou pas de boules, retourne { "found": false, "note": "raison" }.` }
+            ]
+          }]
+        })
+      });
+
+      const json = await resp.json();
+      if (json.error) throw new Error(json.error.message || 'Erreur API');
+
+      const raw = json.content.map(i => i.text || '').join('').replace(/```json|```/g, '').trim();
+      const data = JSON.parse(raw);
+      lastData = data;
+      renderResults(data);
+
+    } catch(e) {
+      showToast('Erreur : ' + e.message);
+    }
+
+    document.getElementById('loader').style.display = 'none';
+    badge.textContent = liveMode ? 'Live' : 'Prêt';
+    badge.className = liveMode ? 'hud-badge badge-live' : 'hud-badge badge-wait';
+    isBusy = false;
+  }
+
+  // ── ASSIGN COLORS ──
+  function getColor(id) {
+    if (!colorMap[id]) {
+      colorMap[id] = BALL_COLORS[colorIdx % BALL_COLORS.length];
+      colorIdx++;
+    }
+    return colorMap[id];
+  }
+
+  // ── RENDER RESULTS ──
+  function renderResults(data) {
+    const list = document.getElementById('ball-list');
+    const note = document.getElementById('analysis-note');
+
+    if (!data.found || !data.balls || data.balls.length === 0) {
+      list.innerHTML = `<div id="empty-hint" style="text-align:center;padding:14px 0;color:var(--text-faint);font-size:12px;line-height:1.7">
+        ${data.note || 'Aucune boule détectée. Ajuste la caméra.'}
+      </div>`;
+      note.style.display = 'none';
+      return;
+    }
+
+    const sorted = [...data.balls].sort((a, b) => a.rank - b.rank);
+    list.innerHTML = sorted.map((ball, i) => `
+      <div class="ball-row ${i === 0 ? 'winner' : ''}">
+        <div class="ball-num">${ball.rank}</div>
+        <div class="ball-dot" style="background:${getColor(ball.id)}"></div>
+        <div class="ball-info">${ball.desc}</div>
+        ${i === 0 ? '<span class="ball-badge">Gagnante</span>' : ''}
+      </div>
+    `).join('');
+
+    if (data.note) {
+      note.textContent = data.note;
+      note.style.display = 'block';
+    } else {
+      note.style.display = 'none';
+    }
+  }
+
+  // ── DRAW OVERLAY ──
+  function drawLoop() {
+    frameId = requestAnimationFrame(drawLoop);
+    frameCount++;
+    const now = Date.now();
+    if (now - fpsTimer > 1000) {
+      document.getElementById('fps-display').textContent = frameCount + ' fps';
+      frameCount = 0;
+      fpsTimer = now;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!lastData || !lastData.found) return;
+
+    const W = canvas.width, H = canvas.height;
+
+    // Draw cochonnet
+    if (lastData.cochonnet) {
+      const cx = (lastData.cochonnet.x / 100) * W;
+      const cy = (lastData.cochonnet.y / 100) * H;
+
+      // Pulse ring
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 400);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 18 + pulse * 4, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(61,139,255,${0.2 + pulse * 0.15})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, 13, 0, Math.PI * 2);
+      ctx.strokeStyle = '#3D8BFF';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#3D8BFF';
+      ctx.fill();
+
+      ctx.font = 'bold 10px DM Sans, sans-serif';
+      ctx.fillStyle = '#3D8BFF';
+      ctx.textAlign = 'center';
+      ctx.fillText('COCHONNET', cx, cy - 20);
+    }
+
+    if (!lastData.balls) return;
+    const sorted = [...lastData.balls].sort((a, b) => a.rank - b.rank);
+
+    sorted.forEach((ball, i) => {
+      const bx = (ball.x / 100) * W;
+      const by = (ball.y / 100) * H;
+      const color = getColor(ball.id);
+      const isWinner = i === 0;
+
+      // Line to cochonnet for winner
+      if (isWinner && lastData.cochonnet) {
+        const cx = (lastData.cochonnet.x / 100) * W;
+        const cy = (lastData.cochonnet.y / 100) * H;
+        ctx.save();
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(cx, cy);
+        ctx.strokeStyle = 'rgba(232,160,32,0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Outer glow for winner
+      if (isWinner) {
+        ctx.beginPath();
+        ctx.arc(bx, by, 30, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(232,160,32,0.18)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // Main circle
+      ctx.beginPath();
+      ctx.arc(bx, by, isWinner ? 22 : 17, 0, Math.PI * 2);
+      ctx.strokeStyle = isWinner ? '#E8A020' : color;
+      ctx.lineWidth = isWinner ? 2.5 : 1.5;
+      ctx.stroke();
+
+      // Fill subtle
+      ctx.beginPath();
+      ctx.arc(bx, by, isWinner ? 22 : 17, 0, Math.PI * 2);
+      ctx.fillStyle = isWinner ? 'rgba(232,160,32,0.12)' : `${color}18`;
+      ctx.fill();
+
+      // Rank number
+      ctx.font = `bold ${isWinner ? 13 : 11}px DM Mono, monospace`;
+      ctx.fillStyle = isWinner ? '#E8A020' : color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('#' + ball.rank, bx, by);
+
+      // Winner star
+      if (isWinner) {
+        ctx.font = '10px sans-serif';
+        ctx.fillText('★', bx, by - 30);
+      }
+
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+    });
+  }
+
+  // ── TOAST ──
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.style.display = 'none', 4000);
+  }
+
+  // ── RESTORE KEY ──
+  window.addEventListener('load', () => {
+    const saved = localStorage.getItem('petanque_key');
+    if (saved) document.getElementById('api-key-input').value = saved;
+  });
+</script>
+</body>
+</html>
